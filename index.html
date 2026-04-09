@@ -1,13 +1,788 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>sudokuapp</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sudoku Trainer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cell: 52px;
+      --gap: 2px;
+      --accent: #378ADD;
+      --accent-light: #E6F1FB;
+      --peer-bg: #f0f6fc;
+      --same-bg: #EAF3DE;
+      --conflict: #E24B4A;
+      --pencil-match: #FAEEDA;
+      --given-color: #2C2C2A;
+      --placed-color: #185FA5;
+      --border-box: 2.5px solid #888780;
+      --border-cell: 0.5px solid #D3D1C7;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f7f7f5;
+      color: #2C2C2A;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: white;
+      border-bottom: 0.5px solid #D3D1C7;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 { font-size: 17px; font-weight: 500; letter-spacing: -0.3px; }
+
+    #timer-display {
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+      color: #5F5E5A;
+    }
+
+    #pause-btn {
+      background: none;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #5F5E5A;
+    }
+    #pause-btn:hover { background: #f1f0ee; }
+
+    .main-layout {
+      display: flex;
+      flex: 1;
+      gap: 0;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 24px 16px;
+      gap: 24px;
+    }
+
+    /* ── LEFT COLUMN ── */
+    .left-col {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      align-items: center;
+    }
+
+    /* ── GRID ── */
+    #grid-wrap {
+      background: white;
+      border-radius: var(--radius);
+      border: 0.5px solid #D3D1C7;
+      padding: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(9, var(--cell));
+      grid-template-rows: repeat(9, var(--cell));
+      border-top: var(--border-box);
+      border-left: var(--border-box);
+    }
+
+    .cell {
+      width: var(--cell);
+      height: var(--cell);
+      border-right: var(--border-cell);
+      border-bottom: var(--border-cell);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+      transition: background 0.08s;
+    }
+
+    .cell.box-right  { border-right: var(--border-box); }
+    .cell.box-bottom { border-bottom: var(--border-box); }
+
+    .cell.given  { font-weight: 600; color: var(--given-color); }
+    .cell.placed { color: var(--placed-color); }
+    .cell.conflict { color: var(--conflict) !important; }
+
+    .cell.selected    { background: #BBDEFB; }
+    .cell.peer        { background: var(--peer-bg); }
+    .cell.same-digit  { background: var(--same-bg); }
+    .cell.same-digit-peer { background: #c8d8c8; }
+    .cell.pencil-match { background: var(--pencil-match); }
+
+    .cell.flash-correct { background: #c8e6c9 !important; }
+    .cell.flash-wrong   { background: #ffcdd2 !important; }
+
+    /* spotlight from code trainer */
+    .cell.spotlight-target { outline: 2.5px solid #EF9F27; outline-offset: -2px; }
+    .cell.spotlight-reason { outline: 2px solid #1D9E75; outline-offset: -2px; }
+
+    /* group outlines */
+    .cell.group-0 { outline: 2px solid #D85A30; outline-offset: -2px; }
+    .cell.group-1 { outline: 2px solid #7F77DD; outline-offset: -2px; }
+    .cell.group-2 { outline: 2px solid #1D9E75; outline-offset: -2px; }
+    .cell.group-3 { outline: 2px solid #D4537E; outline-offset: -2px; }
+    .cell.group-4 { outline: 2px solid #BA7517; outline-offset: -2px; }
+
+    /* pencil marks */
+    .pencil-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      width: 100%;
+      height: 100%;
+      padding: 1px;
+    }
+    .pencil-grid span {
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #888780;
+      line-height: 1;
+    }
+
+    /* ── STATUS BAR ── */
+    #status-bar {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      width: 100%;
+    }
+
+    .stat-pill {
+      background: white;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 13px;
+      color: #5F5E5A;
+    }
+    .stat-pill span { color: #2C2C2A; font-weight: 500; }
+
+    /* ── CONTROLS ROW ── */
+    .controls-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .ctrl-btn {
+      flex: 1;
+      padding: 7px 10px;
+      font-size: 13px;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      color: #2C2C2A;
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { background: #f1f0ee; }
+    .ctrl-btn.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
+
+    /* ── NUMPAD ── */
+    #numpad {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      width: 100%;
+    }
+
+    .num-btn {
+      background: white;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 8px;
+      padding: 8px 4px 6px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      transition: background 0.08s;
+    }
+    .num-btn:hover:not(:disabled) { background: #f1f0ee; }
+    .num-btn:disabled { opacity: 0.35; cursor: default; }
+
+    .num-label { font-size: 20px; font-weight: 500; line-height: 1; }
+    .num-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .num-badge.amber { background: #FAEEDA; color: #854F0B; }
+    .num-badge.blue  { background: #E6F1FB; color: #185FA5; }
+    .num-badge.green { background: #EAF3DE; color: #3B6D11; }
+    .num-badge.grey  { background: #F1EFE8; color: #5F5E5A; }
+
+    .pip-row { font-size: 7px; color: #B4B2A9; letter-spacing: 1px; }
+
+    .erase-btn { font-size: 20px; color: #5F5E5A; }
+
+    /* ── RIGHT COLUMN ── */
+    .right-col {
+      width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    /* difficulty selector */
+    #difficulty-row {
+      display: flex;
+      gap: 6px;
+    }
+    .diff-btn {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 12px;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      color: #5F5E5A;
+    }
+    .diff-btn:hover { background: #f1f0ee; }
+    .diff-btn.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+
+    /* new game button */
+    #new-game-btn {
+      width: 100%;
+      padding: 9px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #new-game-btn:hover { background: #185FA5; }
+
+    /* tabs */
+    .tab-bar {
+      display: flex;
+      border-bottom: 0.5px solid #D3D1C7;
+      background: white;
+      border-radius: 8px 8px 0 0;
+      overflow: hidden;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 13px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      color: #888780;
+      border-bottom: 2px solid transparent;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+    .tab-panel {
+      display: none;
+      background: white;
+      border: 0.5px solid #D3D1C7;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 14px;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .tab-panel.active { display: flex; }
+
+    /* code trainer tools */
+    .tool-btn {
+      width: 100%;
+      padding: 8px 12px;
+      text-align: left;
+      background: white;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #2C2C2A;
+    }
+    .tool-btn:hover { background: #f1f0ee; }
+
+    /* hint card */
+    #hint-card {
+      background: #f7f7f5;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.6;
+      display: none;
+    }
+    #hint-card.visible { display: block; }
+    #hint-card strong { font-weight: 500; color: var(--accent); display: block; margin-bottom: 4px; }
+
+    .hint-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .hint-actions button {
+      flex: 1;
+      padding: 6px;
+      font-size: 12px;
+      border: 0.5px solid #D3D1C7;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+    }
+    .hint-actions button:hover { background: #f1f0ee; }
+
+    /* scan results */
+    #scan-results {
+      font-size: 12px;
+      color: #5F5E5A;
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+    }
+    #scan-results.visible { display: flex; }
+    #scan-results .scan-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 0.5px solid #f1f0ee;
+    }
+    #scan-results .scan-count { font-weight: 500; color: #2C2C2A; }
+
+    /* ai placeholder */
+    .ai-placeholder {
+      text-align: center;
+      padding: 24px 12px;
+      color: #888780;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .ai-placeholder .ai-icon { font-size: 28px; margin-bottom: 8px; }
+
+    /* completion banner */
+    #completion-banner {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    #completion-banner.visible { display: flex; }
+    .banner-card {
+      background: white;
+      border-radius: 12px;
+      padding: 32px 40px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+      max-width: 320px;
+    }
+    .banner-card h2 { font-size: 22px; font-weight: 500; margin-bottom: 8px; }
+    .banner-card p  { color: #5F5E5A; font-size: 14px; margin-bottom: 20px; }
+    .banner-card button {
+      padding: 10px 28px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* paused overlay */
+    .paused-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: calc(9 * var(--cell));
+      height: calc(9 * var(--cell));
+      font-size: 20px;
+      color: #888780;
+      letter-spacing: 1px;
+    }
+
+    /* responsive */
+    @media (max-width: 780px) {
+      .main-layout { flex-direction: column; align-items: center; padding: 12px 8px; }
+      .right-col { width: 100%; max-width: calc(9 * var(--cell) + 24px); }
+      :root { --cell: 38px; }
+      .pencil-grid span { font-size: 8px; }
+      .cell { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Sudoku Trainer</h1>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span id="timer-display">0:00</span>
+    <button id="pause-btn">Pause</button>
+  </div>
+</header>
+
+<div class="main-layout">
+
+  <!-- LEFT: grid + controls -->
+  <div class="left-col">
+
+    <div id="grid-wrap">
+      <div id="grid"></div>
+    </div>
+
+    <div id="status-bar">
+      <div class="stat-pill">Mistakes: <span id="mistake-count">0</span></div>
+      <div class="stat-pill">Hints: <span id="hint-count">0</span></div>
+    </div>
+
+    <div class="controls-row">
+      <button class="ctrl-btn" id="pencil-toggle">✏ Pencil</button>
+      <button class="ctrl-btn" id="check-btn">✓ Check</button>
+      <button class="ctrl-btn" id="undo-btn">↩ Undo</button>
+    </div>
+
+    <div id="numpad"></div>
+
+  </div>
+
+  <!-- RIGHT: difficulty + trainer tabs -->
+  <div class="right-col">
+
+    <div id="difficulty-row">
+      <button class="diff-btn active" data-diff="beginner">Beginner</button>
+      <button class="diff-btn" data-diff="intermediate">Inter.</button>
+      <button class="diff-btn" data-diff="advanced">Advanced</button>
+      <button class="diff-btn" data-diff="expert">Expert</button>
+    </div>
+
+    <button id="new-game-btn">New Game</button>
+
+    <div>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="code">Code Trainer</button>
+        <button class="tab-btn" data-tab="ai">AI Trainer</button>
+      </div>
+
+      <!-- CODE TRAINER TAB -->
+      <div class="tab-panel active" id="tab-code">
+
+        <button class="tool-btn" id="btn-next-move">★ What's my next move?</button>
+
+        <div id="hint-card">
+          <strong id="hint-technique"></strong>
+          <div id="hint-explanation"></div>
+          <div class="hint-actions">
+            <button id="hint-jump">Jump to cell</button>
+            <button id="hint-dismiss">Dismiss</button>
+          </div>
+        </div>
+
+        <button class="tool-btn" id="btn-autofill">Auto-fill candidates</button>
+        <button class="tool-btn" id="btn-naked">Find naked singles</button>
+        <button class="tool-btn" id="btn-hidden">Find hidden singles</button>
+        <button class="tool-btn" id="btn-groups">Find box groups</button>
+        <button class="tool-btn" id="btn-scan">Board scan</button>
+        <button class="tool-btn" id="btn-clear-hl">Clear highlights</button>
+
+        <div id="scan-results">
+          <div class="scan-row"><span>Naked singles</span><span class="scan-count" id="sc-naked">—</span></div>
+          <div class="scan-row"><span>Hidden singles</span><span class="scan-count" id="sc-hidden">—</span></div>
+          <div class="scan-row"><span>Box groups</span><span class="scan-count" id="sc-groups">—</span></div>
+        </div>
+
+      </div>
+
+      <!-- AI TRAINER TAB -->
+      <div class="tab-panel" id="tab-ai">
+        <div class="ai-placeholder">
+          <div class="ai-icon">◎</div>
+          AI Trainer coming soon.<br>
+          It will coach you through techniques<br>
+          without giving away the answer.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Completion banner -->
+<div id="completion-banner">
+  <div class="banner-card">
+    <h2>Puzzle solved!</h2>
+    <p id="completion-msg">Well done.</p>
+    <button id="completion-new">New Game</button>
+  </div>
+</div>
+
+<script type="module">
+  import { newGame, placeNumber, undo, getGame, getCells } from './src/game.js';
+  import { autoFill, clearAll } from './src/pencil.js';
+  import { findNakedSingles, findHiddenSingles, findBoxGroups, findNextMove, boardScan } from './src/solver.js';
+  import { renderAll, renderGrid, renderNumpad, renderStatus, attachKeyboard } from './src/render.js';
+
+  // ── Bootstrap ──────────────────────────────────────────────
+  let currentDifficulty = 'beginner';
+
+  function startGame(diff) {
+    currentDifficulty = diff;
+    const idx = Math.floor(Math.random() * 2);
+    newGame(diff, idx);
+    clearHintCard();
+    hideScanResults();
+    document.getElementById('completion-banner').classList.remove('visible');
+    startTimer();
+    renderAll();
+    updateStatusBar();
+  }
+
+let timerHandle = null;
+
+startGame('beginner');
+attachKeyboard();
+
+  function startTimer() {
+    clearInterval(timerHandle);
+    const game = getGame();
+    game.elapsed = 0;
+    game.startTime = Date.now();
+    timerHandle = setInterval(() => {
+      const game = getGame();
+      if (game.isPaused || game.isComplete) return;
+      game.elapsed = Math.floor((Date.now() - game.startTime) / 1000);
+      const m = Math.floor(game.elapsed / 60);
+      const s = game.elapsed % 60;
+      document.getElementById('timer-display').textContent =
+        `${m}:${String(s).padStart(2, '0')}`;
+    }, 500);
+  }
+
+  // ── Status bar ─────────────────────────────────────────────
+  function updateStatusBar() {
+    const game = getGame();
+    document.getElementById('mistake-count').textContent = game.mistakes.length;
+    document.getElementById('hint-count').textContent = game.hintsUsed.length;
+  }
+
+  // Patch renderStatus to also update status bar
+  const origRenderAll = () => { renderAll(); updateStatusBar(); };
+
+  // ── Difficulty buttons ─────────────────────────────────────
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentDifficulty = btn.dataset.diff;
+    });
+  });
+
+  document.getElementById('new-game-btn').addEventListener('click', () => {
+    startGame(currentDifficulty);
+  });
+
+  // ── Pause ──────────────────────────────────────────────────
+  document.getElementById('pause-btn').addEventListener('click', () => {
+    const game = getGame();
+    game.isPaused = !game.isPaused;
+    document.getElementById('pause-btn').textContent = game.isPaused ? 'Resume' : 'Pause';
+    if (!game.isPaused) game.startTime = Date.now() - game.elapsed * 1000;
+    renderGrid();
+  });
+
+  // ── Pencil toggle ──────────────────────────────────────────
+  document.getElementById('pencil-toggle').addEventListener('click', () => {
+    const game = getGame();
+    game.pencilMode = !game.pencilMode;
+    document.getElementById('pencil-toggle').classList.toggle('active', game.pencilMode);
+  });
+
+  // ── Check progress ─────────────────────────────────────────
+  document.getElementById('check-btn').addEventListener('click', () => {
+    const game = getGame();
+    const cells = document.querySelectorAll('.cell');
+    cells.forEach((el, i) => {
+      if (game.given[i] !== 0 || game.player[i] === 0) return;
+      const cls = game.player[i] === game.solution[i] ? 'flash-correct' : 'flash-wrong';
+      el.classList.add(cls);
+      setTimeout(() => el.classList.remove(cls), 1300);
+    });
+  });
+
+  // ── Undo ───────────────────────────────────────────────────
+  document.getElementById('undo-btn').addEventListener('click', () => {
+    undo();
+    origRenderAll();
+  });
+
+  // ── Tab switching ──────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ── Code Trainer ───────────────────────────────────────────
+  function clearHintCard() {
+    const game = getGame();
+    game.spotlight = null;
+    game.groups = {};
+    game.groupNums = {};
+    document.getElementById('hint-card').classList.remove('visible');
+    renderGrid();
+  }
+
+  function hideScanResults() {
+    document.getElementById('scan-results').classList.remove('visible');
+  }
+
+  function showHint(move) {
+    if (!move) {
+      showHintText('No move found', 'Try auto-filling candidates first, or this technique may not apply to the current board state.');
+      return;
+    }
+    const game = getGame();
+    game.spotlight = { target: move.target, reasons: move.reasons || new Set() };
+    game.hintsUsed.push({ type: move.technique, elapsed: game.elapsed });
+    updateStatusBar();
+
+    document.getElementById('hint-technique').textContent = move.technique;
+    document.getElementById('hint-explanation').innerHTML = move.explanation;
+    document.getElementById('hint-card').classList.add('visible');
+    renderGrid();
+  }
+
+  function showHintText(title, body) {
+    document.getElementById('hint-technique').textContent = title;
+    document.getElementById('hint-explanation').textContent = body;
+    document.getElementById('hint-card').classList.add('visible');
+  }
+
+  document.getElementById('btn-next-move').addEventListener('click', () => {
+    hideScanResults();
+    showHint(findNextMove());
+  });
+
+  document.getElementById('btn-autofill').addEventListener('click', () => {
+    clearHintCard();
+    autoFill();
+    renderGrid();
+  });
+
+  document.getElementById('btn-naked').addEventListener('click', () => {
+    clearHintCard(); hideScanResults();
+    const results = findNakedSingles();
+    if (results.length === 0) { showHintText('Naked singles', 'None found on current board.'); return; }
+    const { cellIdx, value } = results[0];
+    showHint({
+      technique: 'Naked Single',
+      explanation: `Cell <b>R${Math.floor(cellIdx/9)+1}C${cellIdx%9+1}</b> has only one candidate: <b>${value}</b>. (${results.length} total found)`,
+      target: cellIdx,
+      reasons: new Set(getCells()[cellIdx].peers),
+    });
+  });
+
+  document.getElementById('btn-hidden').addEventListener('click', () => {
+    clearHintCard(); hideScanResults();
+    const results = findHiddenSingles();
+    if (results.length === 0) { showHintText('Hidden singles', 'None found on current board.'); return; }
+    const { cellIdx, value } = results[0];
+    showHint({
+      technique: 'Hidden Single',
+      explanation: `<b>${value}</b> can only go in <b>R${Math.floor(cellIdx/9)+1}C${cellIdx%9+1}</b> within its unit. (${results.length} total found)`,
+      target: cellIdx,
+      reasons: new Set(),
+    });
+  });
+
+  document.getElementById('btn-groups').addEventListener('click', () => {
+    clearHintCard(); hideScanResults();
+    const results = findBoxGroups();
+    if (results.length === 0) { showHintText('Box groups', 'No naked pairs/triples/quads found. Try auto-filling candidates first.'); return; }
+    const game = getGame();
+    game.groups = {};
+    game.groupNums = {};
+    results.forEach((g, colorIdx) => {
+      g.cells.forEach(i => {
+        game.groups[i] = colorIdx;
+        game.groupNums[i] = g.digits;
+      });
+    });
+    showHint({
+      technique: 'Box Groups',
+      explanation: `Found <b>${results.length}</b> naked group(s). Highlighted on board. Group digits are colored in pencil marks.`,
+      target: results[0].cells[0],
+      reasons: new Set(results[0].cells.slice(1)),
+    });
+  });
+
+  document.getElementById('btn-scan').addEventListener('click', () => {
+    clearHintCard();
+    const scan = boardScan();
+    document.getElementById('sc-naked').textContent  = scan.nakedSingles;
+    document.getElementById('sc-hidden').textContent = scan.hiddenSingles;
+    document.getElementById('sc-groups').textContent = scan.boxGroups;
+    document.getElementById('scan-results').classList.add('visible');
+  });
+
+  document.getElementById('btn-clear-hl').addEventListener('click', () => {
+    clearHintCard(); hideScanResults();
+    renderGrid();
+  });
+
+  document.getElementById('hint-jump').addEventListener('click', () => {
+    const game = getGame();
+    if (game.spotlight) {
+      game.selectedCell = game.spotlight.target;
+      renderGrid();
+    }
+  });
+
+  document.getElementById('hint-dismiss').addEventListener('click', clearHintCard);
+
+  // ── Completion ─────────────────────────────────────────────
+  const origPlaceNumber = placeNumber;
+  function checkCompletion() {
+    const game = getGame();
+    if (game.isComplete) {
+      const m = Math.floor(game.elapsed / 60);
+      const s = game.elapsed % 60;
+      document.getElementById('completion-msg').textContent =
+        `Solved in ${m}:${String(s).padStart(2,'0')} with ${game.mistakes.length} mistake${game.mistakes.length !== 1 ? 's' : ''}.`;
+      document.getElementById('completion-banner').classList.add('visible');
+    }
+  }
+
+  document.getElementById('completion-new').addEventListener('click', () => {
+    startGame(currentDifficulty);
+  });
+
+  // Intercept cell clicks to check completion after each move
+  document.getElementById('grid').addEventListener('click', () => {
+    setTimeout(checkCompletion, 50);
+  });
+
+  // Also expose a patched numpad handler that checks completion
+  window._checkCompletion = checkCompletion;
+</script>
+
+</body>
 </html>
